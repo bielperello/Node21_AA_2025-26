@@ -26,15 +26,15 @@ class TinyCXRNet(nn.Module):
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),   # 64 → 32
         )
 
-        # Pooling adaptable per garantir robustesa a la mida d'entrada
-        self.pool = nn.AdaptiveAvgPool2d((4, 4))  # Resultat final: [128, 4, 4]
+        # Pooling 2 * [128, 4, 4]
+        self.pool_avg = nn.AdaptiveAvgPool2d((4, 4))
+        self.pool_max = nn.AdaptiveMaxPool2d((4, 4))
 
         # Classifier
         self.classifier = nn.Sequential(
-            nn.Linear(128 * 4 * 4, 128),
+            nn.Linear(2 * 128 * 4 * 4, 128),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.3),
             nn.Linear(128, 1)  # Sortida: 1 logits (classe 0 i 1)
@@ -42,7 +42,9 @@ class TinyCXRNet(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
-        x = self.pool(x)
+        xa = self.pool_avg(x)
+        xm = self.pool_max(x)
+        x = torch.cat([xa, xm], dim=1)  # concat canals: [B, 256, 4, 4]
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
