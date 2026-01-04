@@ -55,7 +55,7 @@ def build_tiny_cxrnet(in_channels=1):
 
 
 # -----------------------------------------
-# Transfer Learning: ResNet18Binary (1 canal)
+#  Model 2: Transfer Learning: ResNet18Binary (1 canal)
 # -----------------------------------------
 class ResNet18Binary(nn.Module):
     """
@@ -96,3 +96,80 @@ class ResNet18Binary(nn.Module):
         return self.backbone(x)
 
 
+# -----------------------------------------
+# Model 3: DenseNet121 (Transfer Learning)
+# -----------------------------------------
+
+class DenseNet121Binary(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.backbone = models.densenet121(weights=models.DenseNet121_Weights.DEFAULT)
+
+        # 1. Adaptar la primera capa (conv0) de 3 canals a 1 canal
+        old_conv = self.backbone.features.conv0
+        new_conv = nn.Conv2d(
+            in_channels=1,
+            out_channels=old_conv.out_channels,
+            kernel_size=old_conv.kernel_size,
+            stride=old_conv.stride,
+            padding=old_conv.padding,
+            bias=old_conv.bias is not None
+        )
+
+        # Inicialitzar pesos: mitjana dels 3 canals originals
+        with torch.no_grad():
+            new_conv.weight[:] = old_conv.weight.mean(dim=1, keepdim=True)
+
+        self.backbone.features.conv0 = new_conv
+
+        # 2. Adaptar el classificador final
+        in_features = self.backbone.classifier.in_features
+        self.backbone.classifier = nn.Sequential(
+            nn.Linear(in_features, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(512, 1)
+        )
+
+    def forward(self, x):
+        return self.backbone(x)
+
+
+# -----------------------------------------
+# Model 4: InceptionV3 (Transfer Learning)
+# -----------------------------------------
+class InceptionV3Binary(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.backbone = models.inception_v3(weights='DEFAULT')
+
+        # 1. Adaptar la primera capa (Conv2d_1a_3x3.conv) de 3 canals a 1
+        old_conv = self.backbone.Conv2d_1a_3x3.conv
+        new_conv = nn.Conv2d(
+            in_channels=1,
+            out_channels=old_conv.out_channels,
+            kernel_size=old_conv.kernel_size,
+            stride=old_conv.stride,
+            padding=old_conv.padding,
+            bias=old_conv.bias is not None
+        )
+
+        with torch.no_grad():
+            new_conv.weight[:] = old_conv.weight.mean(dim=1, keepdim=True)
+
+        self.backbone.Conv2d_1a_3x3.conv = new_conv
+
+        # 2. Adaptar la sortida (fc)
+        in_features = self.backbone.fc.in_features
+        self.backbone.fc = nn.Sequential(
+            nn.Linear(in_features, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(512, 1)
+        )
+
+        # InceptionV3 necessita desactivar aux_logits per no fallar en el forward simple
+        self.backbone.aux_logits = False
+
+    def forward(self, x):
+        return self.backbone(x)
