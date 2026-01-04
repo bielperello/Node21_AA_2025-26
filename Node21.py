@@ -64,13 +64,26 @@ class ResNet18Binary(nn.Module):
     """
     def __init__(self):
         super().__init__()
+        self.backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
 
-        # Backbone preentrenat
-        self.backbone = models.resnet18(
-            weights=models.ResNet18_Weights.DEFAULT
+        # Adaptar conv1 de 3 canals a 1 canal
+        old_conv = self.backbone.conv1
+        new_conv = nn.Conv2d(
+            in_channels=1,
+            out_channels=old_conv.out_channels,
+            kernel_size=(old_conv.kernel_size[0], old_conv.kernel_size[1]),
+            stride=(old_conv.stride[0], old_conv.stride[1]),
+            padding=(old_conv.padding[0], old_conv.padding[1]),
+            bias=old_conv.bias is not None
         )
 
-        # Substituïm el classifier final
+        # Inicialitzar pesos: mitjana dels 3 canals
+        with torch.no_grad():
+            new_conv.weight[:] = old_conv.weight.mean(dim=1, keepdim=True)
+
+        self.backbone.conv1 = new_conv
+
+        # Capçal binari
         in_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Sequential(
             nn.Linear(in_features, 512),
