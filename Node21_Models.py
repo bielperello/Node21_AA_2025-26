@@ -141,7 +141,7 @@ class DenseNet121Binary(nn.Module):
 class InceptionV3Binary(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = models.inception_v3(weights='DEFAULT')
+        self.backbone = models.inception_v3(weights='DEFAULT', aux_logits=False)
 
         # 1. Adaptar la primera capa (Conv2d_1a_3x3.conv) de 3 canals a 1
         old_conv = self.backbone.Conv2d_1a_3x3.conv
