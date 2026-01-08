@@ -35,6 +35,8 @@ def _batch_accuracy_from_logits(logits, y_true):
     y_prob = torch.sigmoid(logits)
     y_pred = (y_prob >= 0.5).long().view(-1).cpu().numpy()
     y_true_np = y_true.long().view(-1).cpu().numpy()
+    print("Y true: ", y_true_np)
+    print("Y pred: ", y_pred)
     return accuracy_score(y_true_np, y_pred)
 
 
@@ -87,8 +89,9 @@ def fit(model, train_loader, val_loader, loss_fn, optimizer, epochs, device):
     }
 
     for t in tqdm(range(epochs), desc="Èpoques"):
-
+        print("---- Train Loader ----")
         tr_loss, tr_acc = train_one_epoch( model, train_loader, loss_fn, optimizer, device)
+        print("---- Val Loader -----")
         va_loss, va_acc = eval_one_epoch(model, val_loader, loss_fn, device)
 
         history["train_loss"].append(tr_loss)
