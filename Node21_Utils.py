@@ -1,13 +1,16 @@
 import torch
 import numpy as np
+import torch.nn as nn
+import torch.optim as optim
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, classification_report
 
-
-
+# -----------------------------------------
+# CLASSIFICACIÓ
+# -----------------------------------------
 
 def compute_pos_weight(train_ids, labels_dict, device=None):
     """
@@ -24,16 +27,13 @@ def compute_pos_weight(train_ids, labels_dict, device=None):
 
 
 def make_loss(pos_weight):
-    import torch.nn as nn
     return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
 
 def make_optimizer(model, lr=1e-3, weight_decay=1e-4):
-    import torch.optim as optim
     return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
 def make_optimizer_denseNet(model, lr=1e-5, weight_decay=1e-2):
-    import torch.optim as optim
     return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
 
@@ -45,6 +45,10 @@ def _batch_accuracy_from_logits(logits, y_true):
     y_prob = torch.sigmoid(logits)
     y_pred = (y_prob >= 0.5).long().view(-1).cpu().numpy()
     y_true_np = y_true.long().view(-1).cpu().numpy()
+
+    #print(f"Pred: {y_pred.tolist()}", flush=True)
+    #print(f"True: {y_true_np.tolist()}", flush=True)
+    #print("-" * 30)  # Separador visual opcional
     return accuracy_score(y_true_np, y_pred)
 
 
@@ -192,3 +196,102 @@ def plot_confusion_matrix(model, loader, device):
     # Imprimim les mètriques detallades (Precision, Recall, F1-Score)
     print("\n--- Informe de Classificació ---")
     print(classification_report(all_labels, all_preds, target_names=['Sa', 'Nòdul']))
+
+# -----------------------------------------
+# DETECCIÓ
+# -----------------------------------------
+def make_optimizer_detection(model, lr=1e-3, weight_decay=5e-4, momentum=0.9):
+    # Filtrem paràmetres que no s'entrenen
+    params = [p for p in model.parameters() if p.requires_grad]
+
+    return optim.SGD(params,lr=lr,momentum=momentum,weight_decay=weight_decay)
+
+
+def train_one_epoch_det(model, loader, optimizer, device):
+    model.train()
+    total_loss = 0.0
+    n_batches = 0
+
+    for i_batch, (images, targets) in enumerate(loader):
+        # Adaptació per a llistes de tensors (necessari per detecció)
+        images = list(image.to(device, non_blocking=True) for image in images)
+        targets = [{k: v.to(device, non_blocking=True) for k, v in t.items()} for t in targets]
+
+        optimizer.zero_grad(set_to_none=True)
+
+        # El model retorna un diccionari amb les pèrdues calculades internament
+        loss_dict = model(images, targets)
+        loss = sum(l for l in loss_dict.values())
+
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.detach().item()
+        n_batches += 1
+
+    return total_loss / n_batches
+
+def validate_one_epoch_det(model, loader, device):
+    model.train()
+    total_loss = 0.0
+    n_batches = 0
+
+    for images, targets in loader:
+        images = list(image.to(device, non_blocking=True) for image in images)
+        targets = [{k: v.to(device, non_blocking=True) for k, v in t.items()} for t in targets]
+
+        loss_dict = model(images, targets)
+        loss = sum(l for l in loss_dict.values())
+
+        total_loss += loss.detach().item()
+        n_batches += 1
+
+    return total_loss / n_batches
+
+
+def fit_det(model, train_loader, val_loader, optimizer, epochs, device):
+    history = {"train_loss": [], "val_loss": []}
+
+    # Només mantenim la barra de les èpoques com en el teu exemple
+    for t in tqdm(range(epochs), desc="Èpoques"):
+        tr_loss = train_one_epoch_det(model, train_loader, optimizer, device)
+        va_loss = validate_one_epoch_det(model, val_loader, device)
+
+        history["train_loss"].append(tr_loss)
+        history["val_loss"].append(va_loss)
+
+        print(
+            f"[Època {t + 1}] Train loss {tr_loss:.4f} | "
+            f"Val loss {va_loss:.4f}"
+        )
+
+    return history
+
+def plot_detection_history(history, figsize=(10, 5)):
+    """
+    Dibuixa les corbes de loss per a la Tasca 2 (Detecció).
+
+    history ha de contenir:
+        - train_loss
+        - val_loss
+    """
+    import matplotlib.pyplot as plt
+
+    # Validem que tenim les claus de loss
+    if "train_loss" not in history or "val_loss" not in history:
+        raise ValueError("L'historial ha de contenir 'train_loss' i 'val_loss'")
+
+    plt.figure(figsize=figsize)
+
+    # Dibuixem la Loss
+    plt.title("Evolució de la Loss (RetinaNet)")
+    plt.plot(history["train_loss"], label="Train Loss", marker='o')
+    plt.plot(history["val_loss"], label="Val. Loss", marker='o')
+
+    plt.xlabel("Època")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    plt.show()

@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from torchvision import models
+from torchvision.models.detection import RetinaNet_ResNet50_FPN_V2_Weights, retinanet_resnet50_fpn_v2
+from torchvision.models.detection.retinanet import RetinaNetClassificationHead
 
 class TinyCXRNet(nn.Module):
     def __init__(self, in_channels=1):
@@ -141,7 +143,14 @@ class DenseNet121Binary(nn.Module):
 class InceptionV3Binary(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = models.inception_v3(weights='DEFAULT', aux_logits=False)
+        self.backbone = models.inception_v3(weights='DEFAULT', aux_logits=True, transform_input=False)
+
+        # InceptionV3 necessita desactivar aux_logits per no fallar en el forward simple
+        self.backbone.transform_input = False
+        self.backbone._transform_input = lambda x: x
+
+        self.backbone.aux_logits = False
+        self.backbone.AuxLogits = None
 
         # 1. Adaptar la primera capa (Conv2d_1a_3x3.conv) de 3 canals a 1
         old_conv = self.backbone.Conv2d_1a_3x3.conv
@@ -168,8 +177,45 @@ class InceptionV3Binary(nn.Module):
             nn.Linear(512, 1)
         )
 
-        # InceptionV3 necessita desactivar aux_logits per no fallar en el forward simple
-        self.backbone.aux_logits = False
-
     def forward(self, x):
         return self.backbone(x)
+
+# -----------------------------------------
+# DETECCIÓ
+# -----------------------------------------
+
+# -----------------------------------------
+# Model 1: RetinaNetDetector
+# -----------------------------------------
+
+class RetinaNetDetector(nn.Module):
+    def __init__(self, num_classes=2, pretrained=True):
+        super().__init__()
+
+        # 1. Carreguem el model base preentrenat
+        if pretrained:
+            weights = RetinaNet_ResNet50_FPN_V2_Weights.DEFAULT
+            self.model = retinanet_resnet50_fpn_v2(weights=weights)
+        else:
+            self.model = retinanet_resnet50_fpn_v2(weights=None)
+
+        # 2. Adaptació del capçal (Head) per al nostre nombre de classes
+        # RetinaNet preentrenada en COCO té 91 classes. Cal redefinir-la per a 2.
+            # Obtenim el nombre de canals d'entrada del capçal actual
+        in_channels = self.model.head.classification_head.conv[0][0].in_channels
+        num_anchors = self.model.head.classification_head.num_anchors
+
+        # Substituïm el capçal de classificació
+        self.model.head.classification_head = RetinaNetClassificationHead(
+            in_channels,
+            num_anchors,
+            num_classes
+        )
+
+    def forward(self, images, targets=None):
+        """
+        En mode train: retorna les losses (dict).
+        En mode eval: retorna les prediccions (boxes, scores, labels).
+        """
+        return self.model(images, targets)
+
