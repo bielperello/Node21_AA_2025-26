@@ -145,3 +145,89 @@ def plot_training_history(history, figsize=(15, 5)):
     plt.tight_layout()
     plt.show()
 
+def train_one_epoch_det(model, loader, optimizer):
+    """
+    Entrenament per models torchvision detection (SSD/FasterRCNN).
+    Retorna: avg_total_loss, avg_loss_dict
+    """
+    model.train()
+    total_loss = 0.0
+    loss_sums = {}
+    n_batches = 0
+
+    for images, targets in loader:
+        optimizer.zero_grad(set_to_none=True)
+
+        loss_dict = model(images, targets)
+        loss = sum(loss_dict.values())
+
+        loss.backward()
+
+        optimizer.step()
+
+        total_loss += loss.detach().item()
+        for k, v in loss_dict.items():
+            loss_sums[k] = loss_sums.get(k, 0.0) + v.detach().item()
+
+        n_batches += 1
+
+    avg_total = total_loss / max(n_batches, 1)
+    avg_dict = {k: v / max(n_batches, 1) for k, v in loss_sums.items()}
+    return avg_total, avg_dict
+
+
+@torch.no_grad()
+def eval_one_epoch_det(model, loader):
+    """
+        AVALUACIÓ de loss en validació. Per obtenir loss_dict, els models torchvision detection han d'estar en train().
+        Retorna: avg_total_loss, avg_loss_dict
+    """
+    model.train()
+    total_loss = 0.0
+    loss_sums = {}
+    n_batches = 0
+
+    for images, targets in loader:
+        loss_dict = model(images, targets)
+        loss = sum(loss_dict.values())
+
+        total_loss += loss.detach().item()
+        for k, v in loss_dict.items():
+            loss_sums[k] = loss_sums.get(k, 0.0) + v.detach().item()
+
+        n_batches += 1
+
+    avg_total = total_loss / max(n_batches, 1)
+    avg_dict = {k: v / max(n_batches, 1) for k, v in loss_sums.items()}
+    return avg_total, avg_dict
+
+def fit_det(model, train_loader, val_loader, optimizer, epochs, device):
+    """
+    Fit simple per detecció:
+      - train loss total + components
+      - val loss total + components
+    """
+    history = {"train_loss": [], "val_loss": [], "train_loss_components": [], "val_loss_components": [],}
+
+    for t in tqdm(range(epochs), desc="Èpoques"):
+        tr_loss, tr_comp = train_one_epoch_det(model, train_loader, optimizer)
+        va_loss, va_comp = eval_one_epoch_det(model, val_loader, device)
+
+        history["train_loss"].append(tr_loss)
+        history["val_loss"].append(va_loss)
+        history["train_loss_components"].append(tr_comp)
+        history["val_loss_components"].append(va_comp)
+
+        # Print clar per veure què domina
+        tr_comp_str = " | ".join([f"{k}:{v:.4f}" for k, v in tr_comp.items()])
+        va_comp_str = " | ".join([f"{k}:{v:.4f}" for k, v in va_comp.items()])
+
+        print(
+            f"[Època {t + 1}] "
+            f"Train loss {tr_loss:.4f} ({tr_comp_str})  ||  "
+            f"Val loss {va_loss:.4f} ({va_comp_str})"
+        )
+
+    return history
+
+
