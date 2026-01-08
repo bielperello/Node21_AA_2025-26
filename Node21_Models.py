@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torchvision import models
+from torchvision.models.detection.ssd import SSDClassificationHead
 
 class TinyCXRNet(nn.Module):
     def __init__(self, in_channels=1):
@@ -94,5 +95,47 @@ class ResNet18Binary(nn.Module):
 
     def forward(self, x):
         return self.backbone(x)
+
+# -----------------------------------------
+# Detection: SSD300 + VGG16
+# -----------------------------------------
+class SSD300VGG16Detector(nn.Module):
+    """
+    SSD300 + VGG16 (torchvision) adaptat a 2 classes:
+      - 0: background
+      - 1: nodule
+
+    NOTA: El model preentrenat espera imatges de 3 canals.
+    Recomanat: convertir el teu tensor [1,H,W] a [3,H,W] al Dataset (repeat).
+    """
+
+    def __init__(self, num_classes=2, pretrained=True):
+        super().__init__()
+
+        weights = models.detection.SSD300_VGG16_Weights.DEFAULT if pretrained else None
+        model = models.detection.ssd300_vgg16(weights=weights)
+
+        # L’únic canvi necessari: capçal de classificació a num_classes=2
+        # (el cap de regressió de boxes no depèn de num_classes)
+        in_channels = model.backbone.out_channels
+        num_anchors = model.anchor_generator.num_anchors_per_location()
+
+        model.head.classification_head = SSDClassificationHead(
+            in_channels=in_channels,
+            num_anchors=num_anchors,
+            num_classes=num_classes
+        )
+
+        self.model = model
+
+    def forward(self, images, targets=None):
+        """
+        images: list[Tensor] amb forma [3,H,W] (per pesos preentrenats)
+        targets (train): list[dict] amb:
+          - boxes: FloatTensor [N,4] (x1,y1,x2,y2)
+          - labels: Int64Tensor [N] (1 per nòdul)
+        """
+        return self.model(images, targets)
+
 
 
