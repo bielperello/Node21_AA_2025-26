@@ -219,3 +219,20 @@ class RetinaNetDetector(nn.Module):
         """
         return self.model(images, targets)
 
+    def get_model_sensitive(num_classes=2):
+        from torchvision.models.detection import retinanet_resnet50_fpn_v2
+        model = retinanet_resnet50_fpn_v2(weights='DEFAULT')
+
+        # MODIFICACIÓ CLAU: Forcem el model a ser molt més "xerraire"
+        # Baixem el score_thresh intern (per defecte és 0.05)
+        model.score_thresh = 0.001
+        model.nms_thresh = 0.3  # Menys supressió de caixes duplicades
+        model.detections_per_img = 100  # Permetem que ens doni moltes sospites
+
+        # Adaptem el capçal com ja tenies
+        in_channels = model.head.classification_head.conv[0][0].in_channels
+        num_anchors = model.head.classification_head.num_anchors
+        model.head.classification_head = RetinaNetClassificationHead(in_channels, num_anchors, num_classes)
+
+        return model
+
