@@ -4,6 +4,7 @@ from torchvision import models
 from torchvision.models.detection import RetinaNet_ResNet50_FPN_V2_Weights, retinanet_resnet50_fpn_v2
 from torchvision.models.detection.retinanet import RetinaNetClassificationHead, RetinaNetRegressionHead
 from torchvision.models.detection.anchor_utils import AnchorGenerator
+from torchvision.models.detection.ssd import SSDClassificationHead
 
 class TinyCXRNet(nn.Module):
     def __init__(self, in_channels=1):
@@ -210,3 +211,45 @@ class RetinaNetDetector(nn.Module):
     def forward(self, images, targets=None):
         return self.model(images, targets)
 
+# -----------------------------------------
+# Model 2: SSD300VGG16Detector
+# -----------------------------------------
+class SSD300VGG16Detector(nn.Module):
+    """
+    SSD300 + VGG16 (torchvision) adaptat a 2 classes:
+      - 0: background
+      - 1: nodule
+
+    NOTA: El model preentrenat espera imatges de 3 canals.
+    Recomanat: convertir el teu tensor [1,H,W] a [3,H,W] al Dataset (repeat).
+    """
+
+    def __init__(self, num_classes=2, pretrained=True):
+        super().__init__()
+
+        weights = models.detection.SSD300_VGG16_Weights.DEFAULT if pretrained else None
+        model = models.detection.ssd300_vgg16(weights=weights)
+
+        # classification_head és un SSDClassificationHead(SSDScoringHead) que té module_list de convs
+        old_cls_head = model.head.classification_head
+        in_channels = [m.in_channels for m in old_cls_head.module_list]
+
+        # num_anchors per feature-map level
+        num_anchors = model.anchor_generator.num_anchors_per_location()
+
+        model.head.classification_head = SSDClassificationHead(
+            in_channels=in_channels,
+            num_anchors=num_anchors,
+            num_classes=num_classes
+        )
+
+        self.model = model
+
+    def forward(self, images, targets=None):
+        """
+        images: list[Tensor] amb forma [3,H,W] (per pesos preentrenats)
+        targets (train): list[dict] amb:
+          - boxes: FloatTensor [N,4] (x1,y1,x2,y2)
+          - labels: Int64Tensor [N] (1 per nòdul)
+        """
+        return self.model(images, targets)
