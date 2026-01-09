@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from torchvision import models
 from torchvision.models.detection import RetinaNet_ResNet50_FPN_V2_Weights, retinanet_resnet50_fpn_v2
-from torchvision.models.detection.retinanet import RetinaNetClassificationHead
+from torchvision.models.detection.retinanet import RetinaNetClassificationHead, RetinaNetRegressionHead
+from torchvision.models.detection.anchor_utils import AnchorGenerator
 
 class TinyCXRNet(nn.Module):
     def __init__(self, in_channels=1):
@@ -187,52 +188,25 @@ class InceptionV3Binary(nn.Module):
 # -----------------------------------------
 # Model 1: RetinaNetDetector
 # -----------------------------------------
-
 class RetinaNetDetector(nn.Module):
     def __init__(self, num_classes=2, pretrained=True):
         super().__init__()
+        weights = RetinaNet_ResNet50_FPN_V2_Weights.DEFAULT if pretrained else None
 
-        # 1. Carreguem el model base preentrenat
-        if pretrained:
-            weights = RetinaNet_ResNet50_FPN_V2_Weights.DEFAULT
-            self.model = retinanet_resnet50_fpn_v2(weights=weights)
-        else:
-            self.model = retinanet_resnet50_fpn_v2(weights=None)
+        self.model = retinanet_resnet50_fpn_v2(weights=weights, min_size=512, max_size=512)
 
-        # 2. Adaptació del capçal (Head) per al nostre nombre de classes
-        # RetinaNet preentrenada en COCO té 91 classes. Cal redefinir-la per a 2.
-            # Obtenim el nombre de canals d'entrada del capçal actual
+        anchor_sizes = ((8,), (16,), (32,), (64,), (128,))
+        aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
+
+        new_anchor_gen = AnchorGenerator(anchor_sizes, aspect_ratios)
+        self.model.anchor_generator = new_anchor_gen
+
         in_channels = self.model.head.classification_head.conv[0][0].in_channels
-        num_anchors = self.model.head.classification_head.num_anchors
+        num_anchors = new_anchor_gen.num_anchors_per_location()[0]
 
-        # Substituïm el capçal de classificació
-        self.model.head.classification_head = RetinaNetClassificationHead(
-            in_channels,
-            num_anchors,
-            num_classes
-        )
+        self.model.head.classification_head = RetinaNetClassificationHead(in_channels, num_anchors, num_classes)
+        self.model.head.regression_head = RetinaNetRegressionHead(in_channels, num_anchors)
 
     def forward(self, images, targets=None):
-        """
-        En mode train: retorna les losses (dict).
-        En mode eval: retorna les prediccions (boxes, scores, labels).
-        """
         return self.model(images, targets)
-
-    def get_model_sensitive(num_classes=2):
-        from torchvision.models.detection import retinanet_resnet50_fpn_v2
-        model = retinanet_resnet50_fpn_v2(weights='DEFAULT')
-
-        # MODIFICACIÓ CLAU: Forcem el model a ser molt més "xerraire"
-        # Baixem el score_thresh intern (per defecte és 0.05)
-        model.score_thresh = 0.001
-        model.nms_thresh = 0.3  # Menys supressió de caixes duplicades
-        model.detections_per_img = 100  # Permetem que ens doni moltes sospites
-
-        # Adaptem el capçal com ja tenies
-        in_channels = model.head.classification_head.conv[0][0].in_channels
-        num_anchors = model.head.classification_head.num_anchors
-        model.head.classification_head = RetinaNetClassificationHead(in_channels, num_anchors, num_classes)
-
-        return model
 

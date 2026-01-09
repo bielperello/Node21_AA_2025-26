@@ -386,7 +386,7 @@ def visualize_positive_predictions(model, dataset, device, num_images=3, thresho
                 rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor='red', facecolor='none')
                 axs[i].add_patch(rect)
                 axs[i].text(x1, y1 - 10, f"{score:.2f}", color='red', fontsize=12, fontweight='bold',
-                            backgroundcolor='white')
+                            backgroundcolor='none')
                 found_any = True
 
         if not found_any:
