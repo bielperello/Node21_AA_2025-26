@@ -196,7 +196,11 @@ class RetinaNetDetector(nn.Module):
 
         self.model = retinanet_resnet50_fpn_v2(weights=weights, min_size=512, max_size=512)
 
-        anchor_sizes = ((8,), (16,), (32,), (64,), (128,))
+        base_sizes = [8, 16, 32, 64, 128]
+
+        scales = [2**0, 2**(1/3), 2**(2/3)]
+
+        anchor_sizes = tuple(tuple(int(s * sc) for sc in scales) for s in base_sizes)
         aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
 
         new_anchor_gen = AnchorGenerator(anchor_sizes, aspect_ratios)

@@ -239,7 +239,7 @@ def train_one_epoch_det(model, loader, optimizer, device): # <--- AFEGIR device 
 
 
 @torch.no_grad()
-def eval_one_epoch_det(model, loader, device): # <--- ARA TÉ 3 ARGUMENTS
+def eval_one_epoch_det(model, loader, device):
     model.train()
     total_loss = 0.0
     loss_sums = {}
