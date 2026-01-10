@@ -62,7 +62,6 @@ def train_one_epoch(model, loader, loss_fn, optimizer, device):
 
     return total_loss / n_batches, total_acc / n_batches
 
-
 @torch.no_grad()
 def eval_one_epoch(model, loader, loss_fn, device):
     model.eval()
