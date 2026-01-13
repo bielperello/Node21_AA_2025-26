@@ -4,6 +4,8 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import seaborn as sns
+import torch.nn.functional as F
+
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, classification_report
@@ -397,4 +399,112 @@ def visualize_positive_predictions(model, dataset, device, num_images=3, thresho
         patches.Patch(color='r', label='Predicció')
     ], loc='upper right')
     plt.tight_layout()
+    plt.show()
+
+
+# -----------------------------------------
+# INNOVACIÓ: EXPLICABILITAT (GRAD-CAM)
+# -----------------------------------------
+class GradCAM:
+    """
+    Eina per generar mapes de calor (Heatmaps) que indiquen on mira el model.
+    """
+
+    def __init__(self, model, target_layer):
+        self.model = model
+        self.target_layer = target_layer
+        self.gradients = None
+        self.activations = None
+
+        # Registrem els "hooks" per capturar dades durant el forward/backward
+        # Hook per les activacions (sortida de la capa conv)
+        target_layer.register_forward_hook(self.save_activation)
+        # Hook per als gradients
+        target_layer.register_full_backward_hook(self.save_gradient)
+
+    def save_activation(self, module, input, output):
+        self.activations = output
+
+    def save_gradient(self, module, grad_input, grad_output):
+        # Guardem el gradient de la sortida
+        self.gradients = grad_output[0]
+
+    def __call__(self, x):
+        # 1. Forward Pass
+        # x ha de tenir dimensió [1, 1, H, W] (Batch size 1)
+        output = self.model(x)
+
+        # 2. Backward Pass per la classe "Nòdul" (Logit > 0)
+        # Necessitem netejar gradients previs
+        self.model.zero_grad()
+
+        # Com que és binari (1 output), volem explicar per què ha donat un valor alt.
+        # Fem backward del logit directament.
+        score = output[0]
+        score.backward()
+
+        # 3. Generació del Mapa de Calor (Grad-CAM)
+        # a) Global Average Pooling dels gradients
+        pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3])
+
+        # b) Multipliquem cada canal de l'activació pel seu pes (gradient promig)
+        activation = self.activations[0]  # [Canals, H, W]
+        for i in range(activation.shape[0]):
+            activation[i, :, :] *= pooled_gradients[i]
+
+        # c) Sumem tots els canals per obtenir el heatmap 2D
+        heatmap = torch.mean(activation, dim=0)
+
+        # d) Apliquem ReLU (només ens interessen contribucions positives)
+        heatmap = F.relu(heatmap)
+
+        # e) Normalitzem el heatmap entre 0 i 1
+        if torch.max(heatmap) != 0:
+            heatmap /= torch.max(heatmap)
+
+        return heatmap.detach().cpu().numpy(), score.item()
+
+
+def show_gradcam(model, dataset, device, img_index, target_layer):
+    """
+    Funció auxiliar per visualitzar el resultat.
+    """
+    img_tensor, label = dataset[img_index]
+    # Preparem el tensor pel model (afegim dimensió batch)
+    input_tensor = img_tensor.unsqueeze(0).to(device).requires_grad_()
+
+    # Instanciem el GradCAM
+    grad_cam = GradCAM(model, target_layer)
+
+    # Obtenim el mapa de calor
+    heatmap, score = grad_cam(input_tensor)
+
+    # Redimensionem el heatmap a la mida de la imatge original (224x224 o la que sigui)
+    # img_tensor és [1, H, W]
+    original_h, original_w = img_tensor.shape[1], img_tensor.shape[2]
+
+    # Convertim el heatmap a tensor per interpolar
+    heatmap_t = torch.tensor(heatmap).unsqueeze(0).unsqueeze(0)  # [1, 1, h, w]
+    heatmap_t = F.interpolate(heatmap_t, size=(original_h, original_w), mode='bilinear', align_corners=False)
+    heatmap_resized = heatmap_t.squeeze().numpy()
+
+    # Visualització
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+
+    # Imatge Original (Grayscale)
+    img_np = img_tensor.permute(1, 2, 0).numpy()  # [H, W, 1]
+    # Denormalitzar si calgués, aquí assumim que es veu bé
+
+    ax[0].imshow(img_np, cmap='gray')
+    ax[0].set_title(f"Original (GT: {label})")
+    ax[0].axis('off')
+
+    # Superposició
+    ax[1].imshow(img_np, cmap='gray')
+    # Superposem el heatmap amb transparència (alpha) i mapa de colors 'jet' o 'inferno'
+    ax[1].imshow(heatmap_resized, alpha=0.5, cmap='jet')
+    pred_str = "Nòdul" if score > 0 else "Sa"  # Logits > 0 és nòdul
+    ax[1].set_title(f"Grad-CAM (Pred: {pred_str})")
+    ax[1].axis('off')
+
     plt.show()
